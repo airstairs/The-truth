@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Throw the Ball Simulator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            touch-action: none; /* Prevents default mobile gestures like pull-to-refresh */
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            background-color: #000;
+        }
+
+        #ui {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            max-width: 300px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 8px;
+            color: white;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #health-bar-container {
+            width: 100%;
+            background-color: #444;
+            height: 18px;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        #health-bar {
+            width: 100%;
+            height: 100%;
+            background-color: #2ecc71;
+            transition: width 0.3s ease, background-color 0.3s ease;
+        }
+
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Mobile Touch Controls Overlay */
+        #touch-controls {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+        }
+
+        /* On-screen Action Button */
+        #action-btn {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 80px;
+            height: 80px;
+            background: rgba(231, 76, 60, 0.8);
+            border: 3px solid rgba(255, 255, 255, 0.8);
+            border-radius: 50%;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 10;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            active {
+                background: rgba(192, 57, 43, 0.9);
+                transform: scale(0.95);
+            }
+        }
+
+        /* Virtual Joystick Visual Base */
+        #joystick-base {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            pointer-events: none;
+            display: none;
+            transform: translate(-50%, -50%);
+            z-index: 8;
+        }
+
+        #joystick-stick {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #instructions {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            color: white;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            z-index: 20;
+        }
+
+        #start-btn {
+            margin-top: 20px;
+            padding: 15px 30px;
+            font-size: 18px;
+            background: #2ecc71;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(139, 0, 0, 0.9);
+            color: white;
+            font-size: 48px;
+            font-weight: bold;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.8);
+            animation: flash 0.8s infinite alternate;
+            z-index: 30;
+        }
+
+        @keyframes flash {
+            from { opacity: 0.6; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div><strong>HEALTH</strong></div>
+        <div id="health-bar-container">
+            <div id="health-bar"></div>
+        </div>
+    </div>
+
+    <div id="crosshair"></div>
+
+    <!-- Mobile UI Elements -->
+    <div id="touch-controls"></div>
+    <div id="action-btn">INTERACT<br>/ THROW</div>
+    
+    <div id="joystick-base">
+        <div id="joystick-stick"></div>
+    </div>
+
+    <div id="instructions">
+        <h1>Throw the Ball Simulator</h1>
+        <p><strong>Left Screen Drag:</strong> Move Around</p>
+        <p><strong>Right Screen Drag:</strong> Look Around</p>
+        <p><strong>Red Button:</strong> Pick Up / Throw Ball</p>
+        <button id="start-btn">TAP TO PLAY</button>
+    </div>
+
+    <div id="game-over">YOU DIED</div>
+
+    <!-- Load local Three.js script -->
+    <script src="three.min.js"></script>
+
+    <script>
+        // --- Game Variables ---
+        let scene, camera, renderer;
+        let ground, ball;
+        let health = 100;
+        let isDead = false;
+
+        // Ball Mechanics
+        let isHoldingBall = false;
+        let ballVelocity = new THREE.Vector3();
+        const GRAVITY = 25;
+        const PICKUP_DISTANCE = 4.5;
+        const THROW_FORCE = 20;
+
+        // Player & Camera Orientation State
+        const playerPosition = new THREE.Vector3(0, 1.6, 5);
+        let cameraYaw = 0;   // Y-axis rotation (Horizontal looking)
+        let cameraPitch = 0; // X-axis rotation (Vertical looking)
+
+        // Touch Input Tracking
+        let moveTouchId = null;
+        let lookTouchId = null;
+        
+        let moveTouchStart = { x: 0, y: 0 };
+        let moveInput = { x: 0, y: 0 };
+        let lastLookPos = { x: 0, y: 0 };
+
+        let prevTime = performance.now();
+
+        // UI Elements
+        const healthBar = document.getElementById('health-bar');
+        const instructions = document.getElementById('instructions');
+        const startBtn = document.getElementById('start-btn');
+        const gameOverScreen = document.getElementById('game-over');
+        const actionBtn = document.getElementById('action-btn');
+        const touchContainer = document.getElementById('touch-controls');
+        const joystickBase = document.getElementById('joystick-base');
+        const joystickStick = document.getElementById('joystick-stick');
+
+        init();
+        animate();
+
+        function init() {
+            // 1. Scene & Camera Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            scene.fog = new THREE.FogExp2(0x87ceeb, 0.015);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.rotation.order = 'YXZ'; // Important for FPS rotation handling
+
+            // 2. Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+
+            // 3. Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            sunLight.position.set(20, 40, 20);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 1024;
+            sunLight.shadow.mapSize.height = 1024;
+            scene.add(sunLight);
+
+            // 4. Ground
+            const groundGeometry = new THREE.PlaneGeometry(200, 200);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x3a5f0b, roughness: 0.8 });
+            ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            const grid = new THREE.GridHelper(200, 50, 0x000000, 0x225511);
+            grid.position.y = 0.01;
+            scene.add(grid);
+
+            // 5. Ball Setup
+            const ballRadius = 0.4;
+            const ballGeometry = new THREE.SphereGeometry(ballRadius, 32, 32);
+            const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.3 });
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.position.set(0, ballRadius, 2);
+            ball.castShadow = true;
+            ball.receiveShadow = true;
+            scene.add(ball);
+
+            // 6. Touch Event Handlers
+            setupTouchEvents();
+
+            startBtn.addEventListener('click', () => {
+                instructions.style.display = 'none';
+            });
+
+            actionBtn.addEventListener('pointerdown', (e) => {
+                e.stopPropagation();
+                interactWithBall();
+            });
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // --- Mobile Touch Mechanics ---
+        function setupTouchEvents() {
+            touchContainer.addEventListener('touchstart', handleTouchStart, { passive: false });
+            touchContainer.addEventListener('touchmove', handleTouchMove, { passive: false });
+            touchContainer.addEventListener('touchend', handleTouchEnd, { passive: false });
+            touchContainer.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        }
+
+        function handleTouchStart(e) {
+            e.preventDefault();
+            const halfWidth = window.innerWidth / 2;
+
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+
+                // Left Half = Movement Joystick
+                if (touch.clientX < halfWidth && moveTouchId === null) {
+                    moveTouchId = touch.identifier;
+                    moveTouchStart = { x: touch.clientX, y: touch.clientY };
+                    moveInput = { x: 0, y: 0 };
+
+                    joystickBase.style.display = 'block';
+                    joystickBase.style.left = touch.clientX + 'px';
+                    joystickBase.style.top = touch.clientY + 'px';
+                    joystickStick.style.transform = 'translate(-50%, -50%)';
+                }
+                // Right Half = Look Joystick / Drag
+                else if (touch.clientX >= halfWidth && lookTouchId === null) {
+                    lookTouchId = touch.identifier;
+                    lastLookPos = { x: touch.clientX, y: touch.clientY };
+                }
+            }
+        }
+
+        function handleTouchMove(e) {
+            e.preventDefault();
+
+            for (let i = 0; i < e.touches.length; i++) {
+                const touch = e.touches[i];
+
+                // Process Movement Joystick Drag
+                if (touch.identifier === moveTouchId) {
+                    const deltaX = touch.clientX - moveTouchStart.x;
+                    const deltaY = touch.clientY - moveTouchStart.y;
+                    const maxRadius = 40;
+
+                    const distance = Math.min(Math.hypot(deltaX, deltaY), maxRadius);
+                    const angle = Math.atan2(deltaY, deltaX);
+
+                    const stickX = Math.cos(angle) * distance;
+                    const stickY = Math.sin(angle) * distance;
+
+                    joystickStick.style.transform = `translate(calc(-50% + ${stickX}px), calc(-50% + ${stickY}px))`;
+
+                    // Normalize move values between -1 and 1
+                    moveInput.x = stickX / maxRadius;
+                    moveInput.y = stickY / maxRadius;
+                }
+
+                // Process Looking Control Drag
+                if (touch.identifier === lookTouchId) {
+                    const deltaX = touch.clientX - lastLookPos.x;
+                    const deltaY = touch.clientY - lastLookPos.y;
+
+                    const sensitivity = 0.005;
+                    cameraYaw -= deltaX * sensitivity;
+                    cameraPitch -= deltaY * sensitivity;
+
+                    // Clamp pitch so camera can't flip upside down
+                    cameraPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, cameraPitch));
+
+                    lastLookPos = { x: touch.clientX, y: touch.clientY };
+                }
+            }
+        }
+
+        function handleTouchEnd(e) {
+            e.preventDefault();
+
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const touch = e.changedTouches[i];
+
+                if (touch.identifier === moveTouchId) {
+                    moveTouchId = null;
+                    moveInput = { x: 0, y: 0 };
+                    joystickBase.style.display = 'none';
+                }
+                if (touch.identifier === lookTouchId) {
+                    lookTouchId = null;
+                }
+            }
+        }
+
+        // --- Interaction Logic ---
+        function interactWithBall() {
+            if (isDead) return;
+
+            if (isHoldingBall) {
+                // THROW BALL
+                isHoldingBall = false;
+
+                const cameraDirection = new THREE.Vector3();
+                camera.getWorldDirection(cameraDirection);
+
+                ball.position.copy(camera.position).add(cameraDirection.clone().multiplyScalar(1));
+                ballVelocity.copy(cameraDirection).multiplyScalar(THROW_FORCE);
+                ballVelocity.y += 3; // Upward force bias
+
+                applyDamage();
+            } else {
+                // PICK UP BALL
+                const distance = camera.position.distanceTo(ball.position);
+                if (distance <= PICKUP_DISTANCE) {
+                    isHoldingBall = true;
+                    applyDamage();
+                }
+            }
+        }
+
+        function applyDamage() {
+            const damage = Math.floor(Math.random() * 15) + 1;
+            health = Math.max(0, health - damage);
+
+            const healthPercent = (health / 100) * 100;
+            healthBar.style.width = healthPercent + '%';
+
+            if (health <= 30) {
+                healthBar.style.backgroundColor = '#e74c3c';
+            } else if (health <= 60) {
+                healthBar.style.backgroundColor = '#f1c40f';
+            }
+
+            if (health <= 0) {
+                triggerGameOver();
+            }
+        }
+
+        function triggerGameOver() {
+            isDead = true;
+            instructions.style.display = 'none';
+            actionBtn.style.display = 'none';
+            joystickBase.style.display = 'none';
+            gameOverScreen.style.display = 'flex';
+        }
+
+        // --- Game Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            if (!isDead) {
+                // 1. Update Camera Rotation from Look Drag
+                camera.rotation.x = cameraPitch;
+                camera.rotation.y = cameraYaw;
+
+                // 2. Handle Movement
+                if (Math.abs(moveInput.x) > 0.05 || Math.abs(moveInput.y) > 0.05) {
+                    const moveSpeed = 6.0 * delta;
+
+                    // Calculate direction vectors relative to current camera heading
+                    const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraYaw);
+                    const side = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraYaw);
+
+                    playerPosition.addScaledVector(forward, -moveInput.y * moveSpeed);
+                    playerPosition.addScaledVector(side, moveInput.x * moveSpeed);
+                }
+
+                camera.position.copy(playerPosition);
+            }
+
+            // 3. Ball Physics & Placement
+            if (isHoldingBall) {
+                const holdOffset = new THREE.Vector3(0.3, -0.3, -0.8);
+                holdOffset.applyQuaternion(camera.quaternion);
+                ball.position.copy(camera.position).add(holdOffset);
+            } else {
+                if (ball.position.y > 0.4 || ballVelocity.lengthSq() > 0.01) {
+                    ballVelocity.y -= GRAVITY * delta;
+
+                    ball.position.x += ballVelocity.x * delta;
+                    ball.position.y += ballVelocity.y * delta;
+                    ball.position.z += ballVelocity.z * delta;
+
+                    if (ball.position.y <= 0.4) {
+                        ball.position.y = 0.4;
+                        ballVelocity.y = -ballVelocity.y * 0.4;
+                        ballVelocity.x *= 0.8;
+                        ballVelocity.z *= 0.8;
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+    </script>
+</body>
+</html>
